@@ -1,13 +1,18 @@
 package main
 
 import (
+	"image"
+	"image/draw"
+	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/nfnt/resize"
 )
 
-const MAX_UPLOAD_SIZE = 1024 * 1024
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/html")
@@ -35,26 +40,40 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// file = AddWatermark(file)
+
 	// create upload folder if not exist
 	if err := os.MkdirAll("./uploads", os.ModePerm); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	destinationPath := "./uploads/" + fileHeader.Filename
 
-	// create new file inside upload folder
-	newFile, err := os.Create("./uploads/" + fileHeader.Filename)
+	currentPath, err := os.Getwd()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer newFile.Close()
+	logoPath := currentPath + "/logo.png"
+
+	if err := ProcessImage(file, destinationPath, logoPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// create new file inside upload folder
+	// newFile, err := os.Create("./uploads/" + fileHeader.Filename)
+	// if err != nil {
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
+	// defer newFile.Close()
 
 	// copy uploaded file to new folder
-	_, err = io.Copy(newFile, file)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// _, err = io.Copy(newFile, file)
+	// if err != nil {
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
 
 	println("File uploaded successfully")
 }
@@ -69,4 +88,58 @@ func main() {
 		log.Fatal(err)
 	}
 
+}
+
+// using "github.com/nfnt/resize" library. this library is deprecated.
+func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath string) error {
+	srcImage, _, err := image.Decode(imageFile)
+	if err != nil {
+		return err
+	}
+
+	width := 1000
+	height := 0 // 0 maintains the aspect ratio
+	resizedImage := resize.Resize(uint(width), uint(height), srcImage, resize.Lanczos3)
+
+	destinationImageFile, err := os.Create(destinationPath)
+	if err != nil {
+		return err
+	}
+	defer destinationImageFile.Close()
+
+	jpeg.Encode(destinationImageFile, resizedImage, nil)
+
+	watermarkFile, err := os.Open(watermarkPath)
+	if err != nil {
+		return err
+	}
+	watermarkImage, _, err := image.Decode(watermarkFile)
+	if err != nil {
+		return err
+	}
+
+	finalImage := addWatermark(resizedImage, watermarkImage)
+
+	jpeg.Encode(destinationImageFile, finalImage, nil)
+
+	return nil
+}
+
+func addWatermark(srcImage image.Image, watermarkImage image.Image) image.Image {
+	// Create a new RGBA image for the final result
+	b := srcImage.Bounds()
+	finalImage := image.NewRGBA(b)
+
+	// Draw the source image onto the final image
+	draw.Draw(finalImage, b, srcImage, image.Point{}, draw.Over)
+
+	// Calculate the position to place the watermark (e.g., bottom right corner)
+	watermarkX := finalImage.Bounds().Dx() - watermarkImage.Bounds().Dx() - 10
+	watermarkY := finalImage.Bounds().Dy() - watermarkImage.Bounds().Dy() - 10
+	watermarkPos := image.Point{watermarkX, watermarkY}
+
+	// Draw the watermark onto the final image
+	draw.Draw(finalImage, watermarkImage.Bounds().Add(watermarkPos), watermarkImage, image.Point{}, draw.Over)
+
+	return finalImage
 }
