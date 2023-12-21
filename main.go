@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/h2non/bimg"
 	"github.com/nfnt/resize"
 )
 
@@ -33,7 +34,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// match name of formfile
-	file, fileHeader, err := r.FormFile("file")
+	file, _, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -47,19 +48,26 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	destinationPath := "./uploads/" + fileHeader.Filename
 
-	currentPath, err := os.Getwd()
+	// destinationPath := "./uploads/" + fileHeader.Filename
+	// currentPath, err := os.Getwd()
+	// if err != nil {
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
+
+	// logoPath := currentPath + "/logo.png"
+	// if err := ProcessImage(file, destinationPath, logoPath); err != nil {
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
+
+	_, err = ImageProcessing(file, 1000, "./uploads/bimg.jpeg")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	logoPath := currentPath + "/logo.png"
 
-	if err := ProcessImage(file, destinationPath, logoPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	// create new file inside upload folder
 	// newFile, err := os.Create("./uploads/" + fileHeader.Filename)
 	// if err != nil {
@@ -87,7 +95,41 @@ func main() {
 	if err := http.ListenAndServe(":4500", mux); err != nil {
 		log.Fatal(err)
 	}
+}
 
+// using bimg module from https://github.com/h2non/bimg
+func ImageProcessing(file io.Reader, quality int, destinationPath string) (string, error) {
+
+	buffer, err := io.ReadAll(file)
+	if err != nil {
+		panic(err)
+	}
+
+	converted, err := bimg.NewImage(buffer).Convert(bimg.JPEG)
+	if err != nil {
+		return destinationPath, err
+	}
+
+	resized, err := bimg.NewImage(converted).Process(bimg.Options{Quality: quality})
+	if err != nil {
+		return destinationPath, err
+	}
+
+	watermark := bimg.WatermarkImage{
+		Left:    10,
+		Top:     10,
+		Buf:     []byte("./logo.png"),
+		Opacity: 0.5,
+	}
+	finalImage, err := bimg.NewImage(resized).WatermarkImage(watermark)
+	if err != nil {
+		return destinationPath, err
+	}
+
+	if err := bimg.Write(destinationPath, finalImage); err != nil {
+		return destinationPath, err
+	}
+	return destinationPath, nil
 }
 
 // using "github.com/nfnt/resize" library. this library is deprecated.
