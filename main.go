@@ -2,14 +2,15 @@ package main
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"image/jpeg"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/h2non/bimg"
 	"github.com/nfnt/resize"
 )
 
@@ -34,7 +35,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// match name of formfile
-	file, _, err := r.FormFile("file")
+	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -49,40 +50,18 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// destinationPath := "./uploads/" + fileHeader.Filename
-	// currentPath, err := os.Getwd()
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// logoPath := currentPath + "/logo.png"
-	// if err := ProcessImage(file, destinationPath, logoPath); err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-
-	_, err = ImageProcessing(file, 1000, "./uploads/bimg.jpeg")
+	destinationPath := "./uploads/" + fileHeader.Filename
+	currentPath, err := os.Getwd()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// create new file inside upload folder
-	// newFile, err := os.Create("./uploads/" + fileHeader.Filename)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-	// defer newFile.Close()
-
-	// copy uploaded file to new folder
-	// _, err = io.Copy(newFile, file)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-
+	logoPath := currentPath + "/logo.png"
+	if err := ProcessImage(file, destinationPath, logoPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	println("File uploaded successfully")
 }
 
@@ -97,41 +76,6 @@ func main() {
 	}
 }
 
-// using bimg module from https://github.com/h2non/bimg
-func ImageProcessing(file io.Reader, quality int, destinationPath string) (string, error) {
-
-	buffer, err := io.ReadAll(file)
-	if err != nil {
-		panic(err)
-	}
-
-	converted, err := bimg.NewImage(buffer).Convert(bimg.JPEG)
-	if err != nil {
-		return destinationPath, err
-	}
-
-	resized, err := bimg.NewImage(converted).Process(bimg.Options{Quality: quality})
-	if err != nil {
-		return destinationPath, err
-	}
-
-	watermark := bimg.WatermarkImage{
-		Left:    10,
-		Top:     10,
-		Buf:     []byte("./logo.png"),
-		Opacity: 0.5,
-	}
-	finalImage, err := bimg.NewImage(resized).WatermarkImage(watermark)
-	if err != nil {
-		return destinationPath, err
-	}
-
-	if err := bimg.Write(destinationPath, finalImage); err != nil {
-		return destinationPath, err
-	}
-	return destinationPath, nil
-}
-
 // using "github.com/nfnt/resize" library. this library is deprecated.
 func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath string) error {
 	srcImage, _, err := image.Decode(imageFile)
@@ -139,7 +83,7 @@ func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath str
 		return err
 	}
 
-	width := 1000
+	width := 2000
 	height := 0 // 0 maintains the aspect ratio
 	resizedImage := resize.Resize(uint(width), uint(height), srcImage, resize.Lanczos3)
 
@@ -149,13 +93,13 @@ func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath str
 	}
 	defer destinationImageFile.Close()
 
-	jpeg.Encode(destinationImageFile, resizedImage, nil)
+	// jpeg.Encode(destinationImageFile, resizedImage, nil)
 
-	watermarkFile, err := os.Open(watermarkPath)
+	watermarkFilePng, err := os.Open(watermarkPath)
 	if err != nil {
 		return err
 	}
-	watermarkImage, _, err := image.Decode(watermarkFile)
+	watermarkImage, err := png.Decode(watermarkFilePng)
 	if err != nil {
 		return err
 	}
@@ -168,20 +112,25 @@ func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath str
 }
 
 func addWatermark(srcImage image.Image, watermarkImage image.Image) image.Image {
-	// Create a new RGBA image for the final result
-	b := srcImage.Bounds()
-	finalImage := image.NewRGBA(b)
+	srcBound := srcImage.Bounds()
+	watermarkBound := watermarkImage.Bounds()
 
-	// Draw the source image onto the final image
-	draw.Draw(finalImage, b, srcImage, image.Point{}, draw.Over)
+	if watermarkBound.Dx() > srcBound.Dx()/8 {
+		width := 255
+		height := 0 // 0 maintains the aspect ratio
+		resizedWatermark := resize.Resize(uint(width), uint(height), watermarkImage, resize.Lanczos3)
+		watermarkBound = resizedWatermark.Bounds()
+		watermarkImage = resizedWatermark
+	}
 
-	// Calculate the position to place the watermark (e.g., bottom right corner)
-	watermarkX := finalImage.Bounds().Dx() - watermarkImage.Bounds().Dx() - 10
-	watermarkY := finalImage.Bounds().Dy() - watermarkImage.Bounds().Dy() - 10
-	watermarkPos := image.Point{watermarkX, watermarkY}
+	offset := image.Pt(
+		srcBound.Dx()-watermarkBound.Dx()-20,
+		srcBound.Dy()-watermarkBound.Dy()-20,
+	)
 
-	// Draw the watermark onto the final image
-	draw.Draw(finalImage, watermarkImage.Bounds().Add(watermarkPos), watermarkImage, image.Point{}, draw.Over)
+	outputImage := image.NewRGBA(srcBound)
+	draw.Draw(outputImage, outputImage.Bounds(), srcImage, image.Point{}, draw.Over)
+	draw.DrawMask(outputImage, watermarkBound.Add(offset), watermarkImage, image.Point{}, image.NewUniform(color.Alpha{200}), image.Point{}, draw.Over)
 
-	return finalImage
+	return outputImage
 }
