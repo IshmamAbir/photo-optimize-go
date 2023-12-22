@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"os"
 
 	"github.com/nfnt/resize"
+	"golang.org/x/image/bmp"
 )
 
 const MAX_UPLOAD_SIZE = 20 * 1024 * 1024
@@ -78,10 +80,11 @@ func main() {
 
 // using "github.com/nfnt/resize" library. this library is deprecated.
 func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath string) error {
-	srcImage, _, err := image.Decode(imageFile)
+	srcImage, imageExtension, err := image.Decode(imageFile)
 	if err != nil {
 		return err
 	}
+	println("image extension: ", imageExtension)
 
 	width := 2000
 	height := 0 // 0 maintains the aspect ratio
@@ -106,7 +109,19 @@ func ProcessImage(imageFile io.Reader, destinationPath string, watermarkPath str
 
 	finalImage := addWatermark(resizedImage, watermarkImage)
 
-	jpeg.Encode(destinationImageFile, finalImage, nil)
+	switch imageExtension {
+	case "png":
+		err = png.Encode(destinationImageFile, finalImage)
+	case "gif":
+		err = gif.Encode(destinationImageFile, finalImage, nil)
+	case "bmp":
+		err = bmp.Encode(destinationImageFile, finalImage)
+	default:
+		err = jpeg.Encode(destinationImageFile, finalImage, nil)
+	}
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
