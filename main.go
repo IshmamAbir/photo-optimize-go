@@ -13,7 +13,7 @@ import (
 	"github.com/nfnt/resize"
 )
 
-const MAX_UPLOAD_SIZE = 20 * 1024 * 1024
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024 // 20 mb limit
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/html")
@@ -29,7 +29,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	// check total file size
 	r.Body = http.MaxBytesReader(w, r.Body, MAX_UPLOAD_SIZE)
 	if err := r.ParseMultipartForm(MAX_UPLOAD_SIZE); err != nil {
-		http.Error(w, "The uploaded file is too big.Put less than 1MB.", http.StatusBadRequest)
+		http.Error(w, "The uploaded file is too big.Put less than 20 MB.", http.StatusBadRequest)
 		return
 	}
 
@@ -41,6 +41,8 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// add watermark using "image/draw"
+	// we are using library specific methods for adding watermark. so, we won't use it here. 
 	// file = AddWatermark(file)
 
 	// create upload folder if not exist
@@ -49,6 +51,8 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+
+	// start: using nfnt library
 	// destinationPath := "./uploads/" + fileHeader.Filename
 	// currentPath, err := os.Getwd()
 	// if err != nil {
@@ -61,27 +65,16 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
 	// 	return
 	// }
+	// end: using nfnt library
 
+
+	// start: using bimg library
 	_, err = ImageProcessing(file, 1000, "./uploads/bimg.jpeg")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// create new file inside upload folder
-	// newFile, err := os.Create("./uploads/" + fileHeader.Filename)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-	// defer newFile.Close()
-
-	// copy uploaded file to new folder
-	// _, err = io.Copy(newFile, file)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
+	// end: using bimg library
 
 	println("File uploaded successfully")
 }
